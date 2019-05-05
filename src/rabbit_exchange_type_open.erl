@@ -96,12 +96,67 @@ route(#exchange{name = #resource{virtual_host = VHost} = Name},
         end
     },
 
-    CurrentOrderedBindings = case ets:lookup(?TABLE, Name) of
-        [] -> [];
-        [#?RECORD{?RECVALUE = Bs}] -> Bs
-    end,
-% TODO : Change goto 0 to 1, also in other get_routes..
-    get_routes({RK, MsgProperties}, CurrentOrderedBindings, 0, ordsets:new()).
+    [#?RECORD{?RECVALUE = [{0, Config} | CurrentOrderedBindings]}] = ets:lookup(?TABLE, Name),
+
+    case Config of
+        [] -> get_routes({RK, MsgProperties}, CurrentOrderedBindings, 1, ordsets:new());
+        _ ->
+            MsgContentSize = iolist_size(Content#content.payload_fragments_rev),
+            case pre_check(Config, MsgContentSize, MsgProperties#'P_basic'.headers) of
+                ok -> get_routes({RK, MsgProperties}, CurrentOrderedBindings, 1, ordsets:new());
+                _ -> []
+            end
+    end.
+
+
+pre_check([], _, _) -> ok;
+pre_check([{1, {0, MinPlSize}} | _], PlSize, _) when PlSize < MinPlSize ->
+    rabbit_misc:protocol_error(precondition_failed, "Min size payload hit.", []);
+pre_check([{1, {1, MinPlSize}} | _], PlSize, _) when PlSize < MinPlSize -> ko;
+pre_check([{2, {0, MaxPlSize}} | _], PlSize, _) when PlSize > MaxPlSize ->
+    rabbit_misc:protocol_error(precondition_failed, "Max size payload hit.", []);
+pre_check([{2, {1, MaxPlSize}} | _], PlSize, _) when PlSize > MaxPlSize -> ko;
+pre_check([{3, {MaxHdsArrDepth, MaxHdsSize}} | _], _, Headers) ->
+    check_headers_size(Headers, MaxHdsArrDepth, MaxHdsSize);
+pre_check([_ | Tail], PlSize, Headers) ->
+    pre_check(Tail, PlSize, Headers).
+
+
+check_headers_size(Hs, MaxArrDepth, MaxSize) ->
+    check_headers_size(Hs, MaxArrDepth, 0, MaxSize, 0).
+
+check_headers_size(_, MaxArrDepth, ArrDepth, _, _) when ArrDepth > MaxArrDepth ->
+    rabbit_misc:protocol_error(precondition_failed, "Max headers depth hit.", []);
+check_headers_size(_, _, _, MaxSize, Size) when Size > MaxSize ->
+    rabbit_misc:protocol_error(precondition_failed, "Max headers size hit.", []);
+check_headers_size([], _, _, _, _) -> ok;
+% arbitrarily, size of an array is 10 : why not ?!
+% array of first level (argument has a Key)
+check_headers_size([{<< Key/binary >>, array, Arr} | Tail], MaxArrDepth, 0, MaxSize, Size) ->
+    KeySize = byte_size(Key),
+    NewTail = lists:append([Arr, Tail]),
+    check_headers_size(NewTail, MaxArrDepth, 1, MaxSize, Size + KeySize + 10);
+% count the key name size only
+check_headers_size([{<< Key/binary >>, _, V} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
+    KeySize = byte_size(Key),
+    check_headers_size([{nil, V} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size + KeySize);
+check_headers_size([{array, Arr} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
+    NewTail = lists:append([Arr, Tail]),
+    check_headers_size(NewTail, MaxArrDepth, ArrDepth + 1, MaxSize, Size + 10);
+% arbitrarily, size of a number is 4
+check_headers_size([{_, N} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) when is_number(N) ->
+    check_headers_size(Tail, MaxArrDepth, ArrDepth, MaxSize, Size + 4);
+% size of a binary can be computed
+check_headers_size([{_, << Bin/binary >>} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
+    ValSize = byte_size(Bin),
+    check_headers_size(Tail, MaxArrDepth, ArrDepth, MaxSize, Size + ValSize);
+% size of a list can be computed
+check_headers_size([{_, L} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) when is_list(L) ->
+    ValSize = length(L),
+    check_headers_size(Tail, MaxArrDepth, ArrDepth, MaxSize, Size + ValSize);
+% should be only for bool : arbitrarily, size of a bool is 1
+check_headers_size([{_, _} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
+    check_headers_size(Tail, MaxArrDepth, ArrDepth, MaxSize, Size + 1).
 
 
 
@@ -112,15 +167,15 @@ get_routes(_, [], _, ResDests) ->
 
 get_routes(MsgData, [ {_, BindingType, Dest, {HKRules, RKRules, DTRules, ATRules}, << 0 >>, _} | T ], _, ResDests) ->
     case is_match(BindingType, MsgData, HKRules, RKRules, DTRules, ATRules) of
-        true -> get_routes(MsgData, T, 0, ordsets:add_element(Dest, ResDests));
-           _ -> get_routes(MsgData, T, 0, ResDests)
+        true -> get_routes(MsgData, T, 1, ordsets:add_element(Dest, ResDests));
+           _ -> get_routes(MsgData, T, 1, ResDests)
     end;
 
 % Simplest like direct's exchange type
 get_routes(MsgData={MsgRK, _}, [ {_, BindingType, _, {HKRules, RKRules, DTRules, ATRules}, << 128 >>, _} | T ], _, ResDests) ->
     case is_match(BindingType, MsgData, HKRules, RKRules, DTRules, ATRules) of
-        true -> get_routes(MsgData, T, 0, ordsets:add_element(rabbit_misc:r(get(xopen_vhost), queue, MsgRK), ResDests));
-           _ -> get_routes(MsgData, T, 0, ResDests)
+        true -> get_routes(MsgData, T, 1, ordsets:add_element(rabbit_misc:r(get(xopen_vhost), queue, MsgRK), ResDests));
+           _ -> get_routes(MsgData, T, 1, ResDests)
     end;
 
 % Jump to the next binding satisfying the last goto operator
@@ -1056,7 +1111,7 @@ validate_op([ {Op, longstr, <<>>} | Tail ]) when
     validate_op(Tail);
 
 % Binding order
-validate_op([ {<<"x-order">>, _, V} | Tail ]) when is_integer(V) ->
+validate_op([ {<<"x-order">>, _, V} | Tail ]) when is_integer(V) andalso V > 0 ->
     IsSuperUser = is_super_user(),
     if
         IsSuperUser -> validate_op(Tail);
@@ -1065,7 +1120,7 @@ validate_op([ {<<"x-order">>, _, V} | Tail ]) when is_integer(V) ->
     end;
 
 % Gotos
-validate_op([ {<<"x-goto-on", BoolBin/binary>>, _, V} | Tail ]) when (BoolBin == <<"true">> orelse BoolBin == <<"false">>) andalso is_integer(V) ->
+validate_op([ {<<"x-goto-on", BoolBin/binary>>, _, V} | Tail ]) when (BoolBin == <<"true">> orelse BoolBin == <<"false">>) andalso is_integer(V) andalso V > 0 ->
     IsSuperUser = is_super_user(),
     if
         IsSuperUser -> validate_op(Tail);
@@ -1468,9 +1523,67 @@ is_super_user() ->
     false.
 
 
+create(transaction, #exchange{arguments = Args, name = XName}) ->
+    Config = get_exchange_config(Args),
+    ExchConfig = {0, Config},
+    InitRecord = #?RECORD{?RECKEY = XName, ?RECVALUE = [ExchConfig]},
+    ok = mnesia:write(?TABLE, InitRecord, write);
+create(_, _) -> ok.
 
-validate(_X) -> ok.
-create(_Tx, _X) -> ok.
+
+validate(#exchange{arguments = Args}) ->
+    get_exchange_config(Args),
+    ok.
+
+
+get_exchange_config(Args) ->
+    get_exchange_config(Args, []).
+
+get_exchange_config([], PList) -> PList;
+get_exchange_config([{<<"min-payload-size">>, long, I} | Tail], PList) ->
+    NewPList = [{1, {0, I}} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"min-payload-size">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+get_exchange_config([{<<"min-payload-size-silent">>, long, I} | Tail], PList) ->
+    NewPList = [{1, {1, I}} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"min-payload-size-silent">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+get_exchange_config([{<<"max-payload-size">>, long, I} | Tail], PList) ->
+    NewPList = [{2, {0, I}} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"max-payload-size">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+get_exchange_config([{<<"max-payload-size-silent">>, long, I} | Tail], PList) ->
+    NewPList = [{2, {1, I}} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"max-payload-size-silent">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+
+get_exchange_config([{<<"max-headers-depth">>, long, I} | Tail], PList) ->
+    MaxH = case proplists:get_value(3, PList) of
+        undefined -> {I, 16384};
+        {_, MaxSize} -> {I, MaxSize}
+    end,
+    NewPList = [{3, MaxH} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"max-headers-depth">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+get_exchange_config([{<<"max-headers-size">>, long, I} | Tail], PList) ->
+    MaxH = case proplists:get_value(3, PList) of
+        undefined -> {2, I};
+        {MaxDepth, _} -> {MaxDepth, I}
+    end,
+    NewPList = [{3, MaxH} | PList],
+    get_exchange_config(Tail, NewPList);
+get_exchange_config([{<<"max-headers-size">>, _, _} | _], _) ->
+    rabbit_misc:protocol_error(precondition_failed, "Invalid exchange argument.", []);
+
+get_exchange_config([_ | Tail], PList) ->
+    get_exchange_config(Tail, PList).
+
+
 
 delete(transaction, #exchange{name = XName}, _) ->
     ok = mnesia:delete (?TABLE, XName, write);
@@ -1487,7 +1600,7 @@ add_binding(transaction, #exchange{name = #resource{virtual_host = VHost} = XNam
 
 % Branching operators and "super user" (goto and stop cannot be declared in same binding)
     BindingOrder = get_binding_order(BindingArgs, 10000),
-    {GOT, GOF} = get_goto_operators(BindingArgs, {0, 0}),
+    {GOT, GOF} = get_goto_operators(BindingArgs, {1, 1}),
     {SOT, SOF} = get_stop_operators(BindingArgs, {0, 0}),
     {GOT2, SOT2} = case (is_super_user() orelse SOT==0) of
         true -> {GOT, SOT};
@@ -1508,17 +1621,14 @@ add_binding(transaction, #exchange{name = #resource{virtual_host = VHost} = XNam
     MatchOps = {MatchHKOps, MatchRKOps, MatchDTOps, MatchATOps},
     DefaultDests = {ordsets:new(), ordsets:new(), ordsets:new(), ordsets:new()},
     {Dests, DestsRE} = get_dests_operators(VHost, FlattenedBindindArgs, DefaultDests, ?DEFAULT_DESTS_RE),
-    CurrentOrderedBindings = case mnesia:read(?TABLE, XName, write) of
-        [] -> [];
-        [#?RECORD{?RECVALUE = E}] -> E
-    end,
     NewBinding1 = {BindingOrder, BindingType, Dest, MatchOps, << MsgDestsOpt:8 >>},
     NewBinding2 = case {GOT2, GOF2, StopOperators, Dests, DestsRE, << MsgDests:8, MsgDestsRE:8 >>} of
-        {0, 0, {0, 0}, DefaultDests, ?DEFAULT_DESTS_RE, <<0, 0>>} -> NewBinding1;
+        {1, 1, {0, 0}, DefaultDests, ?DEFAULT_DESTS_RE, <<0, 0>>} -> NewBinding1;
         {_, _, _, DefaultDests, ?DEFAULT_DESTS_RE, <<0, 0>>} -> erlang:append_element(NewBinding1, {GOT2, GOF2, StopOperators});
         _ -> erlang:append_element(NewBinding1, {GOT2, GOF2, StopOperators, Dests, DestsRE, << MsgDests:8, MsgDestsRE:8 >>})
     end,
     NewBinding = erlang:append_element(NewBinding2, BindingId),
+    [#?RECORD{?RECVALUE = CurrentOrderedBindings}] = mnesia:read(?TABLE, XName, write),
     NewBindings = lists:keysort(1, [NewBinding | CurrentOrderedBindings]),
     NewRecord = #?RECORD{?RECKEY = XName, ?RECVALUE = NewBindings},
     ok = mnesia:write(?TABLE, NewRecord, write);
@@ -1527,13 +1637,10 @@ add_binding(_, _, _) ->
 
 
 remove_bindings(transaction, #exchange{name = XName}, BindingsToDelete) ->
-    CurrentOrderedBindings = case mnesia:read(?TABLE, XName, write) of
-        [] -> [];
-        [#?RECORD{?RECVALUE = E}] -> E
-    end,
     BindingIdsToDelete = [crypto:hash(md5, term_to_binary(B)) || B <- BindingsToDelete],
+    [#?RECORD{?RECVALUE = [ExchConfig | CurrentOrderedBindings]}] = mnesia:read(?TABLE, XName, write),
     NewOrderedBindings = remove_bindings_ids(BindingIdsToDelete, CurrentOrderedBindings, []),
-    NewRecord = #?RECORD{?RECKEY = XName, ?RECVALUE = NewOrderedBindings},
+    NewRecord = #?RECORD{?RECKEY = XName, ?RECVALUE = [ExchConfig | NewOrderedBindings]},
     ok = mnesia:write(?TABLE, NewRecord, write);
 remove_bindings(_, _, _) ->
     ok.
@@ -1552,6 +1659,6 @@ remove_bindings_ids(BindingIdsToDelete, [Bind = {_,_,_,_,_,BId} | T], Res) ->
     end.
 
 
-assert_args_equivalence(X, Args) ->
-    rabbit_exchange:assert_args_equivalence(X, Args).
+assert_args_equivalence(#exchange{name = Name, arguments = Args}, RequiredArgs) ->
+    rabbit_misc:assert_args_equivalence(Args, RequiredArgs, Name, [<<"alternate-exchange">>, <<"min-payload-size">>, <<"max-payload-size">>, <<"min-payload-size-silent">>, <<"max-payload-size-silent">>, <<"max-headers-depth">>, <<"max-headers-size">>]).
 

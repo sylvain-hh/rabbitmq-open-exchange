@@ -7,7 +7,13 @@ Some work should be done before annoncing the first official release.
 
 Especially thanks to its routing capabilities, AMQP is a very good Message Oriented Protocol to be used in a Enterprise System Data Bus. This is even more true when you choose RabbitMQ's implementation thanks to its [protocol extensions](https://www.rabbitmq.com/extensions.html) but yet some simple rules cannot be done easily without the help of custom consumers and/or multiple exchanges that increase complexity in your global Information System.
 
-So here are some examples to understand what this new exchange can do very easily :
+### Filtering messages by their sizes (content and headers)
+
+You can filter messages upstream (before they are parsed by bindings) based on their payload's size but also on their headers's size; see [README-filtering.md](README-filtering.md) for more details and examples.
+
+### Routing messages with complex rules
+
+Here are some examples to understand what this new exchange can do very easily :
 
 | Snapshot of bindings | Interpretation |
 | --- | --- |
