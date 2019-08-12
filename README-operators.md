@@ -31,6 +31,12 @@ x-match                                The binding matches true when..
                        all                .. all operators match true (this is the default behaviour)
                        any                .. at least one operator matches true
 ```
+As you may know, those ones are compatible with headers exchange, but there are new binding's types :
+```
+                       any N              .. at least N opeartor(s) must match true 
+                       any                .. at least one operator matches true
+```
+
 
 ### Operators
 These are ***always prefixed by ``` 'x-?' ```*** followed by
