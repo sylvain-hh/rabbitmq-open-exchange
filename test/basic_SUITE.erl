@@ -89,16 +89,25 @@
 %% Routing operators
 -define(AddQOnT(Q), ?KVstr("x-addq-ontrue", Q)).
 -define(AddQOnF(Q), ?KVstr("x-addq-onfalse", Q)).
+
 -define(AddQReOnT(R), ?KVstr("x-addqre-ontrue", R)).
 -define(AddQReOnF(R), ?KVstr("x-addqre-onfalse", R)).
 -define(AddQNReOnT(R), ?KVstr("x-addq!re-ontrue", R)).
 -define(AddQNReOnF(R), ?KVstr("x-addq!re-onfalse", R)).
+
+-define(Add1QReOnT(R), ?KVstr("x-add1qre-ontrue", R)).
+-define(Add1QReOnF(R), ?KVstr("x-add1qre-onfalse", R)).
+-define(Add1QNReOnT(R), ?KVstr("x-add1q!re-ontrue", R)).
+-define(Add1QNReOnF(R), ?KVstr("x-add1q!re-onfalse", R)).
+
 -define(DelQOnT(Q), ?KVstr("x-delq-ontrue", Q)).
 -define(DelQOnF(Q), ?KVstr("x-delq-onfalse", Q)).
+
 -define(DelQReOnT(Q), ?KVstr("x-delqre-ontrue", Q)).
 -define(DelQReOnF(Q), ?KVstr("x-delqre-onfalse", Q)).
 -define(DelQNReOnT(Q), ?KVstr("x-delq!re-ontrue", Q)).
 -define(DelQNReOnF(Q), ?KVstr("x-delq!re-onfalse", Q)).
+
 -define(DelDest, ?KVstr("x-del-dest", "")).
 %%    Allow from message
 -define(MsgAddQOnT, ?KVstr("x-msg-addq-ontrue", "")).
@@ -162,6 +171,7 @@ groups() ->
         , addq, addq_array, addq_re, addq_nre
         , msg_addq, msg_addq_re, msg_addq_nre
         , rk_as_queue
+        , add1q_re_t, add1q_re_f
       ]
     }
   ].
@@ -1581,6 +1591,39 @@ rk_as_queue(Config) ->
     check_queue_messages(Config, Q3, [Mk1Q3]).
 
 
+add1q_re_t() ->
+    [
+        { "q1", [  ]}, { "q2", [  ]}, { "q3", [  ]}
+      , { "q10", [  ]}, { "q20", [  ]}, { "q30", [  ]}
+      , { "devnull", [ [?DelDest, ?KV1s, ?Add1QReOnT("^add1q_re_t:q3")] ]}
+    ].
+add1q_re_t(Config) ->
+    [ Q1, Q2, Q3, Q10, Q20, Q30, _] = ?config(test_queues, Config),
+
+    M1 = sendmsg_h(Config, [?KV1s]),
+    _ = [ begin sendmsg_h(Config, [?KV1s]), 0 end || _ <- lists:seq(1, 100)],
+
+    check_queues_messages(Config, [Q3, Q30], [M1, M1, M1, M1, M1, M1, M1, M1, []]),
+    check_queues_empty(Config, [Q1, Q2, Q10, Q20]).
+
+
+add1q_re_f() ->
+    [
+        { "q1", [  ]}, { "q2", [  ]}, { "q3", [  ]}
+      , { "q10", [  ]}, { "q20", [  ]}, { "q30", [  ]}
+      , { "devnull", [ [?DelDest, ?KV1s, ?Add1QReOnF("^add1q_re_f:q2")] ]}
+    ].
+add1q_re_f(Config) ->
+    [ Q1, Q2, Q3, Q10, Q20, Q30, _] = ?config(test_queues, Config),
+
+    M2 = sendmsg_h(Config, [?KV2s]),
+    _ = [ begin sendmsg_h(Config, [?KV2s]), 0 end || _ <- lists:seq(1, 100)],
+
+    check_queues_messages(Config, [Q2, Q20], [M2, M2, M2, M2, M2, M2, M2, M2, []]),
+    check_queues_empty(Config, [Q1, Q3, Q10, Q30]).
+
+
+
 
 %% Match on properties
 %% -----------------------------------------------------------------------------
@@ -1724,6 +1767,10 @@ check_queue_messages(Config, Queue, Payloads) ->
 
 check_queue_messages(Config, Queue, [], LastPayload) ->
     check_queue_empty(Config, Queue, LastPayload);
+%% Instead of leaving queue with some messages, purge it so tests may be factorized (see add1q..)
+% We may also implement test to check that queue have only n times the same message
+check_queue_messages(_, _, [ [] ], _) ->
+    ok;
 check_queue_messages(Config, Queue, [Payload | Tail], LastPayload) ->
     { Tag, Content } = case amqp_channel:call(?config(test_channel, Config), #'basic.get'{queue = Queue}) of
         {#'basic.get_ok'{delivery_tag = T}, C} -> { T, C };
@@ -1737,6 +1784,14 @@ check_queue_messages(Config, Queue, [Payload | Tail], LastPayload) ->
       Other -> ct:fail("Unexpected message '~s' while expecting message '~s' from queue '~s'. Last message was '~s'", [Other, Payload, Queue, LastPayload])
     end,
     check_queue_messages(Config, Queue, Tail, P).
+
+
+check_queues_empty(_Config, []) ->
+    ok;
+check_queues_empty(Config, [Queue | Tail]) ->
+    ok = check_queue_empty(Config, Queue, abnormal),
+    check_queues_empty(Config, Tail).
+
 
 check_queue_empty(Config, Queue, LastPayload) ->
     Get = #'basic.get'{queue = Queue},
