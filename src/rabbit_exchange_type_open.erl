@@ -75,7 +75,7 @@ validate_binding(_X, #binding{args = Args, key = << >>, destination = Dest}) ->
 
     case get_match_bt(Args2) of
         Err = {error, _} -> Err;
-        {0, _} -> validate_list_type_usage(any, Args2);
+        0 -> validate_list_type_usage(any, Args2);
         _ -> validate_list_type_usage(all, Args2)
     end;
 validate_binding(_X, _) ->
@@ -482,8 +482,8 @@ pack_msg_ops([ {K, _, V} | Tail ], VHost, Dests, DestsRE) ->
 %% -----------------------------------------------------------------------------
 
 % Optimization for headers only..
-is_match({0, Nmin}, {_, MsgProps}, HKRules, [], [], []) ->
-    is_match_hk_any(HKRules, MsgProps#'P_basic'.headers, {Nmin, 0}) == true;
+is_match(0, {_, MsgProps}, HKRules, [], [], []) ->
+    is_match_hk_any(HKRules, MsgProps#'P_basic'.headers);
 is_match({3, Nmin}, {_, MsgProps}, HKRules, [], [], []) ->
     is_match_hk_set(HKRules, MsgProps#'P_basic'.headers, 0) >= Nmin;
 is_match(BT, {_, MsgProps}, HKRules, [], [], []) ->
@@ -491,21 +491,19 @@ is_match(BT, {_, MsgProps}, HKRules, [], [], []) ->
 
 is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, [], []) ->
     case BT of
-        {0, Hmin} ->
-            (R1 = is_match_hk_any(HKRules, MsgProps#'P_basic'.headers, {Hmin, 0})) == true
-              orelse is_match_rk_any(RKRules, MsgRK, R1) == true;
+        0 -> is_match_rk_any(RKRules, MsgRK)
+            orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers);
         _ -> is_match_rk_all(RKRules, MsgRK)
-               andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
+            andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
     end;
 is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, [], ATRules) ->
     case BT of
-        {0, Hmin} ->
-            (R1 = is_match_hk_any(HKRules, MsgProps#'P_basic'.headers, {Hmin, 0})) == true
-              orelse (R2 = is_match_rk_any(RKRules, MsgRK, R1)) == true
-              orelse is_match_pr_any(ATRules, MsgProps, R2) == true;
+        0 -> is_match_rk_any(RKRules, MsgRK)
+            orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers)
+            orelse is_match_pr_any(ATRules, MsgProps);
         _ -> is_match_rk_all(RKRules, MsgRK)
-               andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
-               andalso is_match_pr_all(ATRules, MsgProps)
+            andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
+            andalso is_match_pr_all(ATRules, MsgProps)
     end;
 is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, DTRules, ATRules) ->
     case get(xopen_dtl) of
@@ -513,15 +511,14 @@ is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, DTRules, ATRules) ->
         _ -> ok
     end,
     case BT of
-        {0, Hmin} ->
-            (R1 = is_match_hk_any(HKRules, MsgProps#'P_basic'.headers, {Hmin, 0})) == true
-              orelse (R2 = is_match_rk_any(RKRules, MsgRK, R1)) == true
-              orelse (R3 = is_match_pr_any(ATRules, MsgProps, R2)) == true
-              orelse is_match_dt_any(DTRules, R3) == true;
+        0 -> is_match_rk_any(RKRules, MsgRK)
+            orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers)
+            orelse is_match_pr_any(ATRules, MsgProps)
+            orelse is_match_dt_any(DTRules);
         _ -> is_match_rk_all(RKRules, MsgRK)
-               andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
-               andalso is_match_pr_all(ATRules, MsgProps)
-               andalso is_match_dt_all(DTRules)
+            andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
+            andalso is_match_pr_all(ATRules, MsgProps)
+            andalso is_match_dt_all(DTRules)
     end.
 
 
@@ -554,27 +551,26 @@ is_match_dt_all([ {dtlnre, V} | Tail]) ->
 
 % any
 % --------------------------------------
-is_match_dt_any(_, {N, N}) -> true;
-is_match_dt_any([], R) -> R;
-is_match_dt_any([ {dture, V} | Tail], {Nmin, N}) ->
+is_match_dt_any([]) -> false;
+is_match_dt_any([ {dture, V} | Tail]) ->
     case re:run(get(xopen_dtu), V, [ {capture, none} ]) of
-        match -> is_match_dt_any(Tail, {Nmin, N + 1});
-        _ -> is_match_dt_any(Tail, {Nmin, N})
+        match -> true;
+        _ -> is_match_dt_any(Tail)
     end;
-is_match_dt_any([ {dtunre, V} | Tail], {Nmin, N}) ->
+is_match_dt_any([ {dtunre, V} | Tail]) ->
     case re:run(get(xopen_dtu), V, [ {capture, none} ]) of
-        match -> is_match_dt_any(Tail, {Nmin, N});
-        _ -> is_match_dt_any(Tail, {Nmin, N + 1})
+        match -> true;
+        _ -> is_match_dt_any(Tail)
     end;
-is_match_dt_any([ {dtlre, V} | Tail], {Nmin, N}) ->
+is_match_dt_any([ {dtlre, V} | Tail]) ->
     case re:run(get(xopen_dtl), V, [ {capture, none} ]) of
-        match -> is_match_dt_any(Tail, {Nmin, N + 1});
-        _ -> is_match_dt_any(Tail, {Nmin, N})
+        match -> true;
+        _ -> is_match_dt_any(Tail)
     end;
-is_match_dt_any([ {dtlnre, V} | Tail], {Nmin, N}) ->
+is_match_dt_any([ {dtlnre, V} | Tail]) ->
     case re:run(get(xopen_dtl), V, [ {capture, none} ]) of
-        match -> is_match_dt_any(Tail, {Nmin, N});
-        _ -> is_match_dt_any(Tail, {Nmin, N + 1})
+        match -> true;
+        _ -> is_match_dt_any(Tail)
     end.
 
 
@@ -627,46 +623,39 @@ is_match_pr_all([ {PropOp, PropId, V} | Tail], MsgProps) ->
 
 % any
 % --------------------------------------
-is_match_pr_any(_, _, {N, N}) -> true;
-is_match_pr_any([], _, R) -> R;
-is_match_pr_any([ {PropOp, PropId, V} | Tail], MsgProps, {Nmin, N}) ->
+is_match_pr_any([], _) -> false;
+is_match_pr_any([ {PropOp, PropId, V} | Tail], MsgProps) ->
     MsgPropV = get_msg_prop_value(PropId, MsgProps),
     if
         PropOp == nx andalso MsgPropV == undefined ->
-            is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
+            true;
         MsgPropV /= undefined ->
             case PropOp of
-                ex -> is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                nx -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
-                eq when MsgPropV == V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                eq -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
-                ne when MsgPropV /= V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                ne -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
+                ex -> true;
+                nx -> is_match_pr_any(Tail, MsgProps);
+                eq when MsgPropV == V -> true;
+                eq -> is_match_pr_any(Tail, MsgProps);
+                ne when MsgPropV /= V -> true;
+                ne -> is_match_pr_any(Tail, MsgProps);
                 re -> case re:run(MsgPropV, V, [ {capture, none} ]) == match of
-                          true -> is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                          _ -> is_match_pr_any(Tail, MsgProps, {Nmin, N})
+                          true -> true;
+                          _ -> is_match_pr_any(Tail, MsgProps)
                       end;
                 nre -> case re:run(MsgPropV, V, [ {capture, none} ]) == nomatch of
-                           true -> is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                           _ -> is_match_pr_any(Tail, MsgProps, {Nmin, N})
+                           true -> true;
+                           _ -> is_match_pr_any(Tail, MsgProps)
                        end;
-                lt when MsgPropV < V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                lt -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
-                le when MsgPropV =< V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                le -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
-                ge when MsgPropV >= V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                ge -> is_match_pr_any(Tail, MsgProps, {Nmin, N});
-                gt when MsgPropV > V ->
-                    is_match_pr_any(Tail, MsgProps, {Nmin, N + 1});
-                gt -> is_match_pr_any(Tail, MsgProps, {Nmin, N})
+                lt when MsgPropV < V -> true;
+                lt -> is_match_pr_any(Tail, MsgProps);
+                le when MsgPropV =< V -> true;
+                le -> is_match_pr_any(Tail, MsgProps);
+                ge when MsgPropV >= V -> true;
+                ge -> is_match_pr_any(Tail, MsgProps);
+                gt when MsgPropV > V -> true;
+                gt -> is_match_pr_any(Tail, MsgProps)
             end;
         true ->
-            is_match_pr_any(Tail, MsgProps, {Nmin, N})
+            is_match_pr_any(Tail, MsgProps)
     end.
 
 % --------------------------------------
@@ -715,28 +704,27 @@ is_match_rk_all(_, _) ->
 
 % any
 % --------------------------------------
-is_match_rk_any(_, _, {N, N}) -> true;
-is_match_rk_any([], _, R) -> R;
-is_match_rk_any([ {rkeq, V} | Tail], RK, {Nmin, N}) when V == RK -> is_match_rk_any(Tail, RK, {Nmin, N + 1});
-is_match_rk_any([ {rkne, V} | Tail], RK, {Nmin, N}) when V /= RK -> is_match_rk_any(Tail, RK, {Nmin, N + 1});
-is_match_rk_any([ {rkre, V} | Tail], RK, {Nmin, N}) ->
+is_match_rk_any([], _) -> false;
+is_match_rk_any([ {rkeq, V} | Tail], RK) when V == RK -> true;
+is_match_rk_any([ {rkne, V} | Tail], RK) when V /= RK -> true;
+is_match_rk_any([ {rkre, V} | Tail], RK) ->
     case re:run(RK, V, [ {capture, none} ]) of
-        match -> is_match_rk_any(Tail, RK, {Nmin, N + 1});
-        _ -> is_match_rk_any(Tail, RK, {Nmin, N})
+        match -> true;
+        _ -> is_match_rk_any(Tail, RK)
     end;
-is_match_rk_any([ {rknre, V} | Tail], RK, {Nmin, N}) ->
+is_match_rk_any([ {rknre, V} | Tail], RK) ->
     case re:run(RK, V, [ {capture, none} ]) of
-        match -> is_match_rk_any(Tail, RK, {Nmin, N});
-        _ -> is_match_rk_any(Tail, RK, {Nmin, N + 1})
+        match -> is_match_rk_any(Tail, RK);
+        _ -> true
     end;
-is_match_rk_any([ _ | Tail], RK, R) ->
-    is_match_rk_any(Tail, RK, R).
+is_match_rk_any([ _ | Tail], RK) ->
+    is_match_rk_any(Tail, RK).
 
 
 %% Match on Headers Keys
 %% -----------------------------------------------------------------------------
-is_match_hk({0, Nmin}, Args, Headers) ->
-    is_match_hk_any(Args, Headers, {Nmin, 0});
+is_match_hk(0, Args, Headers) ->
+    is_match_hk_any(Args, Headers);
 % set
 is_match_hk({3, Nmin}, Args, Headers) ->
     is_match_hk_set(Args, Headers, 0) >= Nmin;
@@ -1010,112 +998,102 @@ is_match_hk_set([{_, {_, nre}, _} | _], _, _) -> -1.
 
 % any
 % --------------------------------------
-is_match_hk_any(_, _, {N, N}) -> true;
-% No more match operator to check; return false
-is_match_hk_any([], _, R) -> R;
-% Yet some nx op without data; add 1
-is_match_hk_any([{_, nx, _} | Tail], [], {Nmin, N}) ->
-    is_match_hk_any(Tail, [], {Nmin, N + 1});
+is_match_hk_any([], _) -> false;
+% Yet some nx op without data
+is_match_hk_any([{_, nx, _} | Tail], []) -> true;
 % No more message header but still match operator to check; return false
-is_match_hk_any(_, [], R) -> R;
+is_match_hk_any(_, []) -> false;
 % Current header key not in match operators; go next header with current match operator
-is_match_hk_any(BCur = [{BK, _, _} | _], [{HK, _, _} | HNext], R)
-    when BK > HK -> is_match_hk_any(BCur, HNext, R);
-% Current binding key must not exist in data, add 1
-is_match_hk_any([{BK, nx, _} | BNext], HCur = [{HK, _, _} | _], {Nmin, N})
-    when BK < HK -> is_match_hk_any(BNext, HCur, {Nmin, N + 1});
+is_match_hk_any(BCur = [{BK, _, _} | _], [{HK, _, _} | HNext])
+    when BK > HK -> is_match_hk_any(BCur, HNext);
+% Current binding key must not exist in data
+is_match_hk_any([{BK, nx, _} | BNext], HCur = [{HK, _, _} | _])
+    when BK < HK -> true;
 % Current binding key does not exist in message; go next binding
-is_match_hk_any([{BK, _, _} | BNext], HCur = [{HK, _, _} | _], R)
-    when BK < HK -> is_match_hk_any(BNext, HCur, R);
+is_match_hk_any([{BK, _, _} | BNext], HCur = [{HK, _, _} | _])
+    when BK < HK -> is_match_hk_any(BNext, HCur);
 %
 % From here, BK == HK
 %
-% Current values must match and do match; add 1
-is_match_hk_any([{_, {_, eq}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when BV == HV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-% Current header key must exist; add 1
-is_match_hk_any([{_, ex, _} | BNext], [_ | HNext], {Nmin, N}) ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
+% Current values must match and do match
+is_match_hk_any([{_, {_, eq}, BV} | BNext], [{_, _, HV} | HNext]) when BV == HV -> true;
+% Current header key must exist
+is_match_hk_any([{_, ex, _} | BNext], [_ | HNext]) -> true;
 
 % HK type checking
-is_match_hk_any([{_, is, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, is, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type of
-        longstr -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        longstr -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ib, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, ib, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type of
-        bool -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        bool -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ii, _} | BNext], HCur = [{_, _, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, ii, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
     case is_integer(HV) of
-        true -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        true -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, in, _} | BNext], HCur = [{_, _, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, in, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
     case is_number(HV) of
-        true -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        true -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ia, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, ia, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type == array of
-        true -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        true -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
 
-is_match_hk_any([{_, nis, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, nis, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type of
-        longstr -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        longstr -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
-is_match_hk_any([{_, nib, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, nib, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type of
-        bool -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        bool -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
-is_match_hk_any([{_, nii, _} | BNext], HCur = [{_, _, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, nii, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
     case is_integer(HV) of
-        true -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        true -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
-is_match_hk_any([{_, nin, _} | BNext], HCur = [{_, _, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, nin, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
     case is_number(HV) of
-        true -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        true -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
-is_match_hk_any([{_, nia, _} | BNext], HCur = [{_, Type, _} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, nia, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
     case Type == array of
-        true -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        true -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
 
-is_match_hk_any([{_, {_, ne}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when HV /= BV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
+is_match_hk_any([{_, {_, ne}, BV} | BNext], [{_, _, HV} | HNext]) when HV /= BV -> true;
 
-is_match_hk_any([{_, {_, gt}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when is_number(HV), HV > BV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-is_match_hk_any([{_, {_, ge}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when is_number(HV), HV >= BV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-is_match_hk_any([{_, {_, lt}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when is_number(HV), HV < BV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-is_match_hk_any([{_, {_, le}, BV} | BNext], [{_, _, HV} | HNext], {Nmin, N}) when is_number(HV), HV =< BV ->
-    is_match_hk_any(BNext, HNext, {Nmin, N + 1});
+is_match_hk_any([{_, {_, gt}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV > BV -> true;
+is_match_hk_any([{_, {_, ge}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV >= BV -> true;
+is_match_hk_any([{_, {_, lt}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV < BV -> true;
+is_match_hk_any([{_, {_, le}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV =< BV -> true;
 
 % Regexes
-is_match_hk_any([{_, {_, re}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, {_, re}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext]) ->
     case re:run(HV, BV, [ {capture, none} ]) of
-        match -> is_match_hk_any(BNext, HNext, {Nmin, N + 1});
-        _ -> is_match_hk_any(BNext, HCur, {Nmin, N})
+        match -> true;
+        _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, {_, nre}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext], {Nmin, N}) ->
+is_match_hk_any([{_, {_, nre}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext]) ->
     case re:run(HV, BV, [ {capture, none} ]) of
-        match -> is_match_hk_any(BNext, HCur, {Nmin, N});
-        _ -> is_match_hk_any(BNext, HNext, {Nmin, N + 1})
+        match -> is_match_hk_any(BNext, HCur);
+        _ -> true
     end;
 % No match yet; go next
-is_match_hk_any([_ | BNext], HCur, R) ->
-    is_match_hk_any(BNext, HCur, R).
+is_match_hk_any([_ | BNext], HCur) ->
+    is_match_hk_any(BNext, HCur).
 
 
 
@@ -1127,14 +1105,7 @@ is_match_hk_any([_ | BNext], HCur, R) ->
 %% ---------------------------------------------------------
 
 get_match_bt([]) -> 1;
-get_match_bt([ {<<"x-match">>, longstr, <<"any">>} | _ ]) -> {0, 1};
-get_match_bt([ {<<"x-match">>, longstr, <<"any ", NB/binary>>} | _ ]) ->
-    try
-        N = binary_to_integer(NB),
-        true = (N > 0),
-        {0, N}
-      catch _:_ -> {error, {binding_invalid, "Invalid binding type", []}}
-    end;
+get_match_bt([ {<<"x-match">>, longstr, <<"any">>} | _ ]) -> 0;
 get_match_bt([ {<<"x-match">>, longstr, <<"all">>} | _ ]) -> 1;
 get_match_bt([ {<<"x-match">>, longstr, <<"eq">>} | _ ]) -> 4;
 get_match_bt([ {<<"x-match">>, longstr, <<"set">>} | _ ]) -> {3, 0};

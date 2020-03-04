@@ -42,7 +42,6 @@
 
 %% Binding type operators
 -define(BTany, ?KVstr("x-match", "any")).
--define(BTany2, ?KVstr("x-match", "any 2")).
 -define(BTall, ?KVstr("x-match", "all")).
 -define(BTset0, ?KVstr("x-match", "set 0")).
 -define(BTset1, ?KVstr("x-match", "set 1")).
@@ -136,11 +135,11 @@ groups() ->
           , hec_all_str_only, hec_all_mixed_types, hec_any_str_only, hec_any_mixed_types
         ]}
       , { binding_types, [ parallel, {repeat, 10} ], [
-            bt_any, bt_any2, bt_all, bt_set0, bt_set1, bt_set2, bt_eq
+            bt_any, bt_all, bt_set0, bt_set1, bt_set2, bt_eq
         ]}
       , { on_headers_keys_values, [ parallel, {repeat, 10} ], [
             hkv_ltgt, hkv, hkv_array, hkv_re, hkv_re_array,
-            if_hkv_all_1, if_hkv_any_1, if_hkv_any2_1, if_hkv_set0_1, if_hkv_set1_1, if_hkv_set2_1, if_hkv_eq_1
+            if_hkv_all_1, if_hkv_any_1, if_hkv_set0_1, if_hkv_set1_1, if_hkv_set2_1, if_hkv_eq_1
         ]}
       , { on_headers_keys, [ parallel, {repeat, 10} ], [
             hk_exnex, hk_array
@@ -281,35 +280,6 @@ bt_any(Config) ->
 
     check_queue_messages(Config, Q, [M1, M2, M3, M4, MnoH, Mall1, Mall2, Mset1, Mset2, Mset3, Meq]).
 
-%% bt_any2
-%% -------------------------------------
-bt_any2() ->
-    [ { Q, [ [ ?BTany2 | Args ] ] } || { Q, [ Args ] } <- bt_common_config() ].
-
-bt_any2(Config) ->
-    [ Q ] = ?config(test_queues, Config),
-
-    sendmsg_p(Config, [{me, "mess id 1"}]),
-    sendmsg_h(Config, [?KV4s, ?KVstr("k5", "v5")]),
-    sendmsg_r(Config, "   none "),
-    sendmsg_hr(Config, [?KV4s, ?KVstr("k5", "v5")], "   none "),
-    sendmsg_p(Config, [{us, "guest"}]),
-    sendmsg_h(Config, [pickoneof([?KV1s, ?KV2s, ?KV3s])]),
-    sendmsg_r(Config, pickoneof(["somerk", "  someRK!"])),
-
-    M0 = sendmsg(Config, [?KV2s], "somerk", [{us, "guest"}]),
-    M1 = sendmsg(Config, [pickoneof([?KV1s, ?KV2s, ?KV3s])], "bad", [{us, "guest"}]),
-    M2 = sendmsg(Config, [pickoneof([?KV1s, ?KV2s, ?KV3s])], "somerk", [{me, "guest"}]),
-    M3 = sendmsg(Config, [?KVstr("hu", "ho"), ?KV2s, ?KV4s], "somerk there", [{me, "guest"}]),
-    MnoH = sendmsg(Config, [], "!!somerk is here!!", [{us, "guest"}]),
-    Mall1 = sendmsg(Config, [?KV1s, ?KV2s, ?KV3s, ?KV4s], "somerk", [{us, "guest"}]),
-    Mall2 = sendmsg(Config, [?KVstr("hu", "ho"), ?KV1s, ?KV2s, ?KV3s, ?KV4s], "somerk", [{us, "guest"}]),
-    Mset1 = sendmsg(Config, [?KV2s], "somerk", [{us, "guest"}]),
-    Mset2 = sendmsg(Config, [?KVstr("hu", "ho"), ?KV1s, ?KV4s], "somerk", [{us, "guest"}]),
-    Mset3 = sendmsg(Config, [?KVstr("hu", "ho"), pickoneof([?KV1s, ?KV2s, ?KV3s])], "somerk", [{us, "guest"}]),
-    Meq = sendmsg(Config, [?KV1s, ?KV2s, ?KV3s], "somerk", [{us, "guest"}]),
-
-    check_queue_messages(Config, Q, [M0, M1, M2, M3, MnoH, Mall1, Mall2, Mset1, Mset2, Mset3, Meq]).
 
 %% bt_all
 %% -------------------------------------
@@ -718,18 +688,6 @@ if_hkv_any_1(Config) ->
     % For any, messages are always the same
     SameMessages = [Mk1, Mk2, Mk1k2, Mk1k3, Mk1k2k3, Mk1k2bad, Mk1badk2],
     check_queues_messages(Config, [Qk1k2, Qk1ifk2, Qifk1k2, Qifk1ifk2], SameMessages).
-
-if_hkv_any2_1() ->
-    [ { Q, [ [ ?BTany2 | Args ] ] } || { Q, [ Args ] } <- cc_if_hkv_config() ].
-if_hkv_any2_1(Config) ->
-    [ Qk1k2, Qk1ifk2, Qifk1k2, Qifk1ifk2 ] = ?config(test_queues, Config),
-
-    [_, _, _, Mk1k2, _, Mk1k2k3, _, _, _] = cc_if_hkv_send(Config),
-
-    % For any, messages are always the same
-    SameMessages = [Mk1k2, Mk1k2k3],
-    check_queues_messages(Config, [Qk1k2, Qk1ifk2, Qifk1k2, Qifk1ifk2], SameMessages).
-
 
 
 hkv_ltgt() ->
