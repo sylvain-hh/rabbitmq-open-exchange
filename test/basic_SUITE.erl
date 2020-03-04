@@ -169,7 +169,6 @@ groups() ->
       [ delq, delq_array, delq_re, delq_nre, self_delq
         , addq, addq_array, addq_re, addq_nre
         , msg_addq, msg_addq_re, msg_addq_nre
-        , rk_as_queue
         , add1q_re_t, add1q_re_f
       ]
     }
@@ -1524,29 +1523,6 @@ self_delq(Config) ->
     sendmsg_h(Config, [?KV1s, ?KV2s]),
 
     check_queues_messages(Config, [Qalwaysempty, Qalwaysempty2], []).
-
-
-rk_as_queue() ->
-    [
-        { "q1", [  ]}, { "q2", [  ]}, { "q3", [  ]}
-      , { "filter1", [ [?KV1s, ?DelDest, ?RKasQueue] ]}
-      , { "filter2", [ [?KV2s, ?DelDest, ?RKasQueue, ?RKre("^rk_as_queue:q[12]$")] ]}
-    ].
-rk_as_queue(Config) ->
-    [ Q1, Q2, Q3, _, _ ] = ?config(test_queues, Config),
-
-    sendmsg_h(Config, [?KV1s, ?KV2s]),
-    sendmsg_hr(Config, [?KV2s], "rk_as_queue:404"),
-    Mk1Q1 = sendmsg_hr(Config, [?KV1s], "rk_as_queue:q1"),
-    Mk1Q2 = sendmsg_hr(Config, [?KV1s], "rk_as_queue:q2"),
-    Mk1Q3 = sendmsg_hr(Config, [?KV1s], "rk_as_queue:q3"),
-    Mk2Q1 = sendmsg_hr(Config, [?KV2s], "rk_as_queue:q1"),
-    Mk2Q2 = sendmsg_hr(Config, [?KV2s], "rk_as_queue:q2"),
-    _Mk2Q3 = sendmsg_hr(Config, [?KV2s], "rk_as_queue:q3"),
-
-    check_queue_messages(Config, Q1, [Mk1Q1, Mk2Q1]),
-    check_queue_messages(Config, Q2, [Mk1Q2, Mk2Q2]),
-    check_queue_messages(Config, Q3, [Mk1Q3]).
 
 
 add1q_re_t() ->

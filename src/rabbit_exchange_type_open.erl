@@ -165,29 +165,17 @@ check_headers_size([{_, _} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
 get_routes(_, [], _, ResDests) ->
     ordsets:to_list(ResDests);
 
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, << 0 >>, _} | T ], _, ResDests) ->
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _} | T ], _, ResDests) ->
     case is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules) of
         true -> get_routes(MsgData, T, 1, ordsets:add_element(Dest, ResDests));
            _ -> get_routes(MsgData, T, 1, ResDests)
     end;
 
-% Simplest like direct's exchange type
-get_routes(MsgData={MsgRK, _}, [ {_, BT, _, {HKRules, RKRules, DTRules, ATRules}, << 128 >>, _} | T ], _, ResDests) ->
-    case is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules) of
-        true -> get_routes(MsgData, T, 1, ordsets:add_element(rabbit_misc:r(get(xopen_vhost), queue, MsgRK), ResDests));
-           _ -> get_routes(MsgData, T, 1, ResDests)
-    end;
-
 % Jump to the next binding satisfying the last goto operator
-get_routes(MsgData, [ {Order, _, _, _, _, _, _} | T ], GotoOrder, ResDests) when GotoOrder > Order ->
+get_routes(MsgData, [ {Order, _, _, _, _, _} | T ], GotoOrder, ResDests) when GotoOrder > Order ->
     get_routes(MsgData, T, GotoOrder, ResDests);
 
-% At this point, main dest is rewritten for next cases
-get_routes(MsgData = {MsgRK, _}, [ {Order, BT, _, MatchOps, << 128 >>, Other, BindingId} | T ], GotoOrder, ResDests) ->
-    NewDest = rabbit_misc:r(get(xopen_vhost), queue, MsgRK),
-    get_routes(MsgData, [{Order, BT, NewDest, MatchOps, << 0 >>, Other, BindingId} | T], GotoOrder, ResDests);
-
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GOT, GOF, StopOperators}, _} | T ], _, ResDests) ->
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators}, _} | T ], _, ResDests) ->
     case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
         {true,{1,_}}  -> ordsets:add_element(Dest, ResDests);
         {false,{_,1}} -> ResDests;
@@ -195,7 +183,7 @@ get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GO
         {false,_}     -> get_routes(MsgData, T, GOF, ResDests)
     end;
 
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<0, 0>>}, _} | T ], _, ResDests) ->
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<0, 0>>}, _} | T ], _, ResDests) ->
     case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
         {true,{1,_}}  -> ordsets:subtract(ordsets:union(DAT, ordsets:add_element(Dest, ResDests)), DDT);
         {false,{_,1}} -> ordsets:subtract(ordsets:union(DAF, ResDests), DDF);
@@ -203,7 +191,7 @@ get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GO
         {false,_}     -> get_routes(MsgData, T, GOF, ordsets:subtract(ordsets:union(DAF, ResDests), DDF))
     end;
 
-get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<BindDest:8, 0>>}, _} | T ], _, ResDests) ->
+get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<BindDest:8, 0>>}, _} | T ], _, ResDests) ->
     {{MAQT, MAQF, MAET, MAEF, MDQT, MDQF, MDET, MDEF}, _} = case get(xopen_msg_ds) of
         undefined -> save_msg_dops(MsgProps#'P_basic'.headers, get(xopen_vhost));
         V -> V
@@ -247,7 +235,7 @@ get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, AT
         {false,_}     -> get_routes(MsgData, T, GOF, ordsets:subtract(ordsets:union([DAF, MsgAQF, MsgAEF, ResDests]), ordsets:union([DDF, MsgDQF, MsgDEF])))
     end;
 
-get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, {DATRE, DAFRE, DDTRE, DDFRE, DATNRE, DAFNRE, DDTNRE, DDFNRE}, <<BindDest:8, BindREDest:8>>}, _} | T ], _, ResDests) ->
+get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, {DATRE, DAFRE, DDTRE, DDFRE, DATNRE, DAFNRE, DDTNRE, DDFNRE}, <<BindDest:8, BindREDest:8>>}, _} | T ], _, ResDests) ->
     AllVHQueues = case get(xopen_allqs) of
         undefined -> save_queues();
         Res1 -> Res1
@@ -705,8 +693,8 @@ is_match_rk_all(_, _) ->
 % any
 % --------------------------------------
 is_match_rk_any([], _) -> false;
-is_match_rk_any([ {rkeq, V} | Tail], RK) when V == RK -> true;
-is_match_rk_any([ {rkne, V} | Tail], RK) when V /= RK -> true;
+is_match_rk_any([ {rkeq, V} | _], RK) when V == RK -> true;
+is_match_rk_any([ {rkne, V} | _], RK) when V /= RK -> true;
 is_match_rk_any([ {rkre, V} | Tail], RK) ->
     case re:run(RK, V, [ {capture, none} ]) of
         match -> true;
@@ -996,14 +984,14 @@ is_match_hk_set([{_, {_, nre}, _} | _], _, _) -> -1.
 % --------------------------------------
 is_match_hk_any([], _) -> false;
 % Yet some nx op without data
-is_match_hk_any([{_, nx, _} | Tail], []) -> true;
+is_match_hk_any([{_, nx, _} | _], []) -> true;
 % No more message header but still match operator to check; return false
 is_match_hk_any(_, []) -> false;
 % Current header key not in match operators; go next header with current match operator
 is_match_hk_any(BCur = [{BK, _, _} | _], [{HK, _, _} | HNext]) when BK > HK ->
     is_match_hk_any(BCur, HNext);
 % Current binding key must not exist in data
-is_match_hk_any([{BK, nx, _} | BNext], HCur = [{HK, _, _} | _]) when BK < HK -> true;
+is_match_hk_any([{BK, nx, _} | _], [{HK, _, _} | _]) when BK < HK -> true;
 % Current binding key does not exist in message; go next binding
 is_match_hk_any([{BK, _, _} | BNext], HCur = [{HK, _, _} | _]) when BK < HK ->
     is_match_hk_any(BNext, HCur);
@@ -1011,77 +999,77 @@ is_match_hk_any([{BK, _, _} | BNext], HCur = [{HK, _, _} | _]) when BK < HK ->
 % From here, BK == HK
 %
 % Current values must match and do match
-is_match_hk_any([{_, {_, eq}, BV} | BNext], [{_, _, HV} | HNext]) when BV == HV -> true;
+is_match_hk_any([{_, {_, eq}, BV} | _], [{_, _, HV} | _]) when BV == HV -> true;
 % Current header key must exist
-is_match_hk_any([{_, ex, _} | BNext], [_ | HNext]) -> true;
+is_match_hk_any([{_, ex, _} | _], _) -> true;
 
 % HK type checking
-is_match_hk_any([{_, is, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, is, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type of
         longstr -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ib, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, ib, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type of
         bool -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ii, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
+is_match_hk_any([{_, ii, _} | BNext], HCur = [{_, _, HV} | _]) ->
     case is_integer(HV) of
         true -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, in, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
+is_match_hk_any([{_, in, _} | BNext], HCur = [{_, _, HV} | _]) ->
     case is_number(HV) of
         true -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, ia, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, ia, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type == array of
         true -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
 
-is_match_hk_any([{_, nis, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, nis, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type of
         longstr -> is_match_hk_any(BNext, HCur);
         _ -> true
     end;
-is_match_hk_any([{_, nib, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, nib, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type of
         bool -> is_match_hk_any(BNext, HCur);
         _ -> true
     end;
-is_match_hk_any([{_, nii, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
+is_match_hk_any([{_, nii, _} | BNext], HCur = [{_, _, HV} | _]) ->
     case is_integer(HV) of
         true -> is_match_hk_any(BNext, HCur);
         _ -> true
     end;
-is_match_hk_any([{_, nin, _} | BNext], HCur = [{_, _, HV} | HNext]) ->
+is_match_hk_any([{_, nin, _} | BNext], HCur = [{_, _, HV} | _]) ->
     case is_number(HV) of
         true -> is_match_hk_any(BNext, HCur);
         _ -> true
     end;
-is_match_hk_any([{_, nia, _} | BNext], HCur = [{_, Type, _} | HNext]) ->
+is_match_hk_any([{_, nia, _} | BNext], HCur = [{_, Type, _} | _]) ->
     case Type == array of
         true -> is_match_hk_any(BNext, HCur);
         _ -> true
     end;
 
-is_match_hk_any([{_, {_, ne}, BV} | BNext], [{_, _, HV} | HNext]) when HV /= BV -> true;
+is_match_hk_any([{_, {_, ne}, BV} | _], [{_, _, HV} | _]) when HV /= BV -> true;
 
-is_match_hk_any([{_, {_, gt}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV > BV -> true;
-is_match_hk_any([{_, {_, ge}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV >= BV -> true;
-is_match_hk_any([{_, {_, lt}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV < BV -> true;
-is_match_hk_any([{_, {_, le}, BV} | BNext], [{_, _, HV} | HNext]) when is_number(HV), HV =< BV -> true;
+is_match_hk_any([{_, {_, gt}, BV} | _], [{_, _, HV} | _]) when is_number(HV), HV > BV -> true;
+is_match_hk_any([{_, {_, ge}, BV} | _], [{_, _, HV} | _]) when is_number(HV), HV >= BV -> true;
+is_match_hk_any([{_, {_, lt}, BV} | _], [{_, _, HV} | _]) when is_number(HV), HV < BV -> true;
+is_match_hk_any([{_, {_, le}, BV} | _], [{_, _, HV} | _]) when is_number(HV), HV =< BV -> true;
 
 % Regexes
-is_match_hk_any([{_, {_, re}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext]) ->
+is_match_hk_any([{_, {_, re}, BV} | BNext], HCur = [ {_, longstr, HV} | _]) ->
     case re:run(HV, BV, [ {capture, none} ]) of
         match -> true;
         _ -> is_match_hk_any(BNext, HCur)
     end;
-is_match_hk_any([{_, {_, nre}, BV} | BNext], HCur = [ {_, longstr, HV} | HNext]) ->
+is_match_hk_any([{_, {_, nre}, BV} | BNext], HCur = [ {_, longstr, HV} | _]) ->
     case re:run(HV, BV, [ {capture, none} ]) of
         match -> is_match_hk_any(BNext, HCur);
         _ -> true
@@ -1295,8 +1283,7 @@ validate_op([ {Op, longstr, <<>>} | Tail ]) when
             Op==<<"x-msg-delq-ontrue">> orelse Op==<<"x-msg-delq-onfalse">> orelse
             Op==<<"x-msg-dele-ontrue">> orelse Op==<<"x-msg-dele-onfalse">> orelse
             Op==<<"x-msg-addqre-ontrue">> orelse Op==<<"x-msg-addqre-onfalse">> orelse
-            Op==<<"x-msg-delqre-ontrue">> orelse Op==<<"x-msg-delqre-onfalse">> orelse
-            Op==<<"x-msg-destq-rk">> ->
+            Op==<<"x-msg-delqre-ontrue">> orelse Op==<<"x-msg-delqre-onfalse">> ->
     validate_op(Tail);
 
 % Binding order
@@ -1713,35 +1700,32 @@ get_dests_operators(VHost, [_ | T], Dests, DestsRE) ->
 
 %% Operators decided by the message (by the producer)
 get_msg_ops([], Result) -> Result;
-% Replace dest by rk
-get_msg_ops([{<<"x-msg-destq-rk">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << DRight, DreRight, (OTH bor 128) >>);
 %% Routing facilities :
-get_msg_ops([{<<"x-msg-addq-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 1), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-addq-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 2), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-adde-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 4), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-adde-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 8), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-delq-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 16), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-delq-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 32), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-dele-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 64), DreRight, OTH >>);
-get_msg_ops([{<<"x-msg-dele-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 128), DreRight, OTH >>);
+get_msg_ops([{<<"x-msg-addq-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 1), DreRight >>);
+get_msg_ops([{<<"x-msg-addq-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 2), DreRight >>);
+get_msg_ops([{<<"x-msg-adde-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 4), DreRight >>);
+get_msg_ops([{<<"x-msg-adde-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 8), DreRight >>);
+get_msg_ops([{<<"x-msg-delq-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 16), DreRight >>);
+get_msg_ops([{<<"x-msg-delq-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 32), DreRight >>);
+get_msg_ops([{<<"x-msg-dele-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 64), DreRight >>);
+get_msg_ops([{<<"x-msg-dele-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 128), DreRight >>);
 % Via regex : set right to value too !
-get_msg_ops([{<<"x-msg-addqre-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 1), (DreRight bor 1), OTH >>);
-get_msg_ops([{<<"x-msg-addqre-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 2), (DreRight bor 2), OTH >>);
-get_msg_ops([{<<"x-msg-delqre-ontrue">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 16), (DreRight bor 16), OTH >>);
-get_msg_ops([{<<"x-msg-delqre-onfalse">>, _, _} | T], << DRight:8, DreRight:8, OTH:8 >>) ->
-    get_msg_ops(T, << (DRight bor 32), (DreRight bor 32), OTH >>);
+get_msg_ops([{<<"x-msg-addqre-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 1), (DreRight bor 1) >>);
+get_msg_ops([{<<"x-msg-addqre-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 2), (DreRight bor 2) >>);
+get_msg_ops([{<<"x-msg-delqre-ontrue">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 16), (DreRight bor 16) >>);
+get_msg_ops([{<<"x-msg-delqre-onfalse">>, _, _} | T], << DRight:8, DreRight:8 >>) ->
+    get_msg_ops(T, << (DRight bor 32), (DreRight bor 32) >>);
 % Go next
 get_msg_ops([_ | T], Result) ->
     get_msg_ops(T, Result).
@@ -1858,7 +1842,7 @@ add_binding(transaction, #exchange{name = #resource{virtual_host = VHost} = XNam
     end,
     StopOperators = {SOT2, SOF2},
 
-    << MsgDests:8, MsgDestsRE:8, MsgDestsOpt:8 >> = get_msg_ops(BindingArgs, << 0, 0, 0 >>),
+    << MsgDests:8, MsgDestsRE:8 >> = get_msg_ops(BindingArgs, << 0, 0 >>),
     FlattenedBindindArgs = flatten_table(transform_x_del_dest(BindingArgs, Dest)),
     MatchHKOps = get_match_hk_ops(FlattenedBindindArgs),
     MatchRKOps = get_match_rk_ops(FlattenedBindindArgs, []),
@@ -1867,7 +1851,8 @@ add_binding(transaction, #exchange{name = #resource{virtual_host = VHost} = XNam
     MatchOps = {MatchHKOps, MatchRKOps, MatchDTOps, MatchATOps},
     DefaultDests = {ordsets:new(), ordsets:new(), ordsets:new(), ordsets:new()},
     {Dests, DestsRE} = get_dests_operators(VHost, FlattenedBindindArgs, DefaultDests, ?DEFAULT_DESTS_RE),
-    NewBinding1 = {BindingOrder, BT, Dest, MatchOps, << MsgDestsOpt:8 >>},
+
+    NewBinding1 = {BindingOrder, BT, Dest, MatchOps},
     NewBinding2 = case {GOT2, GOF2, StopOperators, Dests, DestsRE, << MsgDests:8, MsgDestsRE:8 >>} of
         {1, 1, {0, 0}, DefaultDests, ?DEFAULT_DESTS_RE, <<0, 0>>} -> NewBinding1;
         {_, _, _, DefaultDests, ?DEFAULT_DESTS_RE, <<0, 0>>} -> erlang:append_element(NewBinding1, {GOT2, GOF2, StopOperators});
@@ -1893,12 +1878,12 @@ remove_bindings(_, _, _) ->
 
 remove_bindings_ids(_, [], Res) -> Res;
 % TODO : use element(tuple_size(Binding), Binding) to use one declaration only
-remove_bindings_ids(BindingIdsToDelete, [Bind = {_,_,_,_,_,_,BId} | T], Res) ->
+remove_bindings_ids(BindingIdsToDelete, [Bind = {_,_,_,_,_,BId} | T], Res) ->
     case lists:member(BId, BindingIdsToDelete) of
         true -> remove_bindings_ids(BindingIdsToDelete, T, Res);
         _    -> remove_bindings_ids(BindingIdsToDelete, T, lists:append(Res, [Bind]))
     end;
-remove_bindings_ids(BindingIdsToDelete, [Bind = {_,_,_,_,_,BId} | T], Res) ->
+remove_bindings_ids(BindingIdsToDelete, [Bind = {_,_,_,_,BId} | T], Res) ->
     case lists:member(BId, BindingIdsToDelete) of
         true -> remove_bindings_ids(BindingIdsToDelete, T, Res);
         _    -> remove_bindings_ids(BindingIdsToDelete, T, lists:append(Res, [Bind]))

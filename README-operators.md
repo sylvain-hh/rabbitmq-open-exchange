@@ -33,8 +33,8 @@ x-match                                The binding matches true when..
 ```
 As you may know, those ones are compatible with headers exchange, but there are new binding's types :
 ```
-                       any N              .. at least N opeartor(s) must match true 
-                       any                .. at least one operator matches true
+                       eq                 .. like 'all', but where headers' keys are ALL present in binding
+                       set N              .. like 'all', but where at least N headers' keys exist in message
 ```
 
 
@@ -133,9 +133,6 @@ suffixed by
 ```
 
 When producers are permitted to add/del routes via regex, they are permitted to specify exact destinations names too.
-
-#### Mimic the default exchange
-The operator ````x-msg-destq-rk```` tells the binding to use the routing key as a queue name for its destination so that if there is no other defined operator in the binding, its behaviour mimics the default exchange defined by AMQP.
 
 #### Delete main destination
 The operator ````x-del-dest```` tells the binding to not take into account the main destination; this is useful in some special situations.
