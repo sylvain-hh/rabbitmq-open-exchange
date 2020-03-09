@@ -165,8 +165,8 @@ check_headers_size([{_, _} | Tail], MaxArrDepth, ArrDepth, MaxSize, Size) ->
 get_routes(_, [], _, ResDests) ->
     ordsets:to_list(ResDests);
 
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _} | T ], _, ResDests) ->
-    case is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules) of
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules, DERules}, _} | T ], _, ResDests) ->
+    case is_match(BT, MsgData, ResDests, HKRules, RKRules, DTRules, ATRules, DERules) of
         true -> get_routes(MsgData, T, 1, ordsets:add_element(Dest, ResDests));
            _ -> get_routes(MsgData, T, 1, ResDests)
     end;
@@ -175,23 +175,23 @@ get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, _} | T
 get_routes(MsgData, [ {Order, _, _, _, _, _} | T ], GotoOrder, ResDests) when GotoOrder > Order ->
     get_routes(MsgData, T, GotoOrder, ResDests);
 
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators}, _} | T ], _, ResDests) ->
-    case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules, DERules}, {GOT, GOF, StopOperators}, _} | T ], _, ResDests) ->
+    case {is_match(BT, MsgData, ResDests, HKRules, RKRules, DTRules, ATRules, DERules), StopOperators} of
         {true,{1,_}}  -> ordsets:add_element(Dest, ResDests);
         {false,{_,1}} -> ResDests;
         {true,_}      -> get_routes(MsgData, T, GOT, ordsets:add_element(Dest, ResDests));
         {false,_}     -> get_routes(MsgData, T, GOF, ResDests)
     end;
 
-get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<0, 0>>}, _} | T ], _, ResDests) ->
-    case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
+get_routes(MsgData, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules, DERules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<0, 0>>}, _} | T ], _, ResDests) ->
+    case {is_match(BT, MsgData, ResDests, HKRules, RKRules, DTRules, ATRules, DERules), StopOperators} of
         {true,{1,_}}  -> ordsets:subtract(ordsets:union(DAT, ordsets:add_element(Dest, ResDests)), DDT);
         {false,{_,1}} -> ordsets:subtract(ordsets:union(DAF, ResDests), DDF);
         {true,_}      -> get_routes(MsgData, T, GOT, ordsets:subtract(ordsets:union(DAT, ordsets:add_element(Dest, ResDests)), DDT));
         {false,_}     -> get_routes(MsgData, T, GOF, ordsets:subtract(ordsets:union(DAF, ResDests), DDF))
     end;
 
-get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<BindDest:8, 0>>}, _} | T ], _, ResDests) ->
+get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules, DERules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, ?DEFAULT_DESTS_RE, <<BindDest:8, 0>>}, _} | T ], _, ResDests) ->
     {{MAQT, MAQF, MAET, MAEF, MDQT, MDQF, MDET, MDEF}, _} = case get(xopen_msg_ds) of
         undefined -> save_msg_dops(MsgProps#'P_basic'.headers, get(xopen_vhost));
         V -> V
@@ -228,14 +228,14 @@ get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, AT
         0 -> ordsets:from_list([]);
         _ -> MDEF
     end,
-    case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
+    case {is_match(BT, MsgData, ResDests, HKRules, RKRules, DTRules, ATRules, DERules), StopOperators} of
         {true,{1,_}}  -> ordsets:subtract(ordsets:union([DAT, MsgAQT, MsgAET, ordsets:add_element(Dest, ResDests)]), ordsets:union([DDT, MsgDQT, MsgDET]));
         {false,{_,1}} -> ordsets:subtract(ordsets:union([DAF, MsgAQF, MsgAEF, ResDests]), ordsets:union([DDF, MsgDQF, MsgDEF]));
         {true,_}      -> get_routes(MsgData, T, GOT, ordsets:subtract(ordsets:union([DAT, MsgAQT, MsgAET, ordsets:add_element(Dest, ResDests)]), ordsets:union([DDT, MsgDQT, MsgDET])));
         {false,_}     -> get_routes(MsgData, T, GOF, ordsets:subtract(ordsets:union([DAF, MsgAQF, MsgAEF, ResDests]), ordsets:union([DDF, MsgDQF, MsgDEF])))
     end;
 
-get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, {DATRE, DAFRE, DDTRE, DDFRE, DATNRE, DAFNRE, DDTNRE, DDFNRE}, <<BindDest:8, BindREDest:8>>}, _} | T ], _, ResDests) ->
+get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, ATRules, DERules}, {GOT, GOF, StopOperators, {DAT, DAF, DDT, DDF}, {DATRE, DAFRE, DDTRE, DDFRE, DATNRE, DAFNRE, DDTNRE, DDFNRE}, <<BindDest:8, BindREDest:8>>}, _} | T ], _, ResDests) ->
     AllVHQueues = case get(xopen_allqs) of
         undefined -> save_queues();
         Res1 -> Res1
@@ -348,7 +348,7 @@ get_routes(MsgData={_, MsgProps}, [ {_, BT, Dest, {HKRules, RKRules, DTRules, AT
         _ -> ordsets:from_list([Q || Q = #resource{name = QueueName, kind=queue} <- ResDests, re:run(QueueName, DDFNRE, [ {capture, none} ]) /= match])
     end,
 
-    case {is_match(BT, MsgData, HKRules, RKRules, DTRules, ATRules), StopOperators} of
+    case {is_match(BT, MsgData, ResDests, HKRules, RKRules, DTRules, ATRules, DERules), StopOperators} of
         {true,{1,_}}  -> ordsets:subtract(ordsets:add_element(Dest, ordsets:union([DAT,DATREsult,DATNREsult,MsgAQT,MsgAET,MsgAQRT,MsgAQNRT,ResDests])), ordsets:union([DDT,DDTREsult,DDTNREsult,MsgDQT,MsgDET,MsgDQRT,MsgDQNRT]));
         {false,{_,1}} -> ordsets:subtract(ordsets:union([DAF,DAFREsult,DAFNREsult,MsgAQF,MsgAEF,MsgAQRF,MsgAQNRF,ResDests]), ordsets:union([DDF,DDFREsult,DDFNREsult,MsgDQF,MsgDEF,MsgDQRF,MsgDQNRF]));
         {true,_}      -> get_routes(MsgData, T, GOT, ordsets:subtract(ordsets:add_element(Dest, ordsets:union([DAT,DATREsult,DATNREsult,MsgAQT,MsgAET,MsgAQRT,MsgAQNRT,ResDests])), ordsets:union([DDT,DDTREsult,DDTNREsult,MsgDQT,MsgDET,MsgDQRT,MsgDQNRT])));
@@ -469,22 +469,46 @@ pack_msg_ops([ {K, _, V} | Tail ], VHost, Dests, DestsRE) ->
 %% Matching
 %% -----------------------------------------------------------------------------
 
+% !!!! L'ordre dans la liste des operations est important
+% !!!! SINON, utiliser une maps !!
+
+is_match2(0, _, []) -> false;
+is_match2(_, _, []) -> true;
+
+% Binding type any and hkOps
+is_match2(0, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+    is_match_hk_any(MatchHKOps, MsgProps#'P_basic'.headers) orelse is_match2(0, MsgData, OtherOps);
+% Binding type set and hkOps
+is_match2({3, Nmin}, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+    (is_match_hk_set(MatchHKOps, MsgProps#'P_basic'.headers) >= Nmin) andalso is_match2(42, MsgData, OtherOps);
+% Binding type all or eq and hkOps
+is_match2(_, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+    is_match_hk_alloreq(MatchHKOps, MsgProps#'P_basic'.headers) andalso is_match2(42, MsgData, OtherOps);
+
+% Binding type any and prOps
+is_match2(0, MsgData = {_, MsgProps}, [{prOps, MatchPROps} | OtherOps]) ->
+    is_match_pr_any(MatchRKOps, MsgProps) orelse is_match2(0, MsgData, OtherOps);
+
+band
+
+
+
 % Optimization for headers only..
-is_match(0, {_, MsgProps}, HKRules, [], [], []) ->
+is_match(0, {_, MsgProps}, _, HKRules, [], [], [], []) ->
     is_match_hk_any(HKRules, MsgProps#'P_basic'.headers);
-is_match({3, Nmin}, {_, MsgProps}, HKRules, [], [], []) ->
+is_match({3, Nmin}, {_, MsgProps}, _, HKRules, [], [], [], []) ->
     is_match_hk_set(HKRules, MsgProps#'P_basic'.headers, 0) >= Nmin;
-is_match(BT, {_, MsgProps}, HKRules, [], [], []) ->
+is_match(BT, {_, MsgProps}, _, HKRules, [], [], [], []) ->
     is_match_hk_alloreq(BT, HKRules, MsgProps#'P_basic'.headers);
 
-is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, [], []) ->
+is_match(BT, {MsgRK, MsgProps}, _, HKRules, RKRules, [], [], []) ->
     case BT of
         0 -> is_match_rk_any(RKRules, MsgRK)
             orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers);
         _ -> is_match_rk_all(RKRules, MsgRK)
             andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
     end;
-is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, [], ATRules) ->
+is_match(BT, {MsgRK, MsgProps}, _, HKRules, RKRules, [], ATRules, []) ->
     case BT of
         0 -> is_match_rk_any(RKRules, MsgRK)
             orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers)
@@ -493,7 +517,7 @@ is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, [], ATRules) ->
             andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
             andalso is_match_pr_all(ATRules, MsgProps)
     end;
-is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, DTRules, ATRules) ->
+is_match(BT, {MsgRK, MsgProps}, ResDests, HKRules, RKRules, DTRules, ATRules, DERules) ->
     case get(xopen_dtl) of
         undefined -> save_datetimes();
         _ -> ok
@@ -501,10 +525,12 @@ is_match(BT, {MsgRK, MsgProps}, HKRules, RKRules, DTRules, ATRules) ->
     case BT of
         0 -> is_match_rk_any(RKRules, MsgRK)
             orelse is_match_hk_any(HKRules, MsgProps#'P_basic'.headers)
+            orelse is_match_de_any(DERules, ResDests)
             orelse is_match_pr_any(ATRules, MsgProps)
             orelse is_match_dt_any(DTRules);
         _ -> is_match_rk_all(RKRules, MsgRK)
             andalso is_match_hk(BT, HKRules, MsgProps#'P_basic'.headers)
+            andalso is_match_de_all(DERules, ResDests)
             andalso is_match_pr_all(ATRules, MsgProps)
             andalso is_match_dt_all(DTRules)
     end.
@@ -665,6 +691,30 @@ get_msg_prop_value(PropId, MsgProps) ->
         pr -> MsgProps#'P_basic'.priority;
         ti -> MsgProps#'P_basic'.timestamp
     end.
+
+
+%% Match on destinations
+%% -----------------------------------------------------------------------------
+
+% all
+% --------------------------------------
+is_match_de_all([], _) -> true;
+
+% If no dest match operator excludes others (validations must follow), then it could be true here
+is_match_de_all([ no | T], []) ->
+    is_match_de_all(T, []);
+is_match_de_all([ no | _], _) -> false;
+
+is_match_de_all([ {q, _} | _], []) -> false;
+is_match_de_all([ {q, V} | T], Dests) ->
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- ResDests],
+    (V in QueueNames) andalso is_match_de_all(T, Dests);
+    Blah. 
+is_match_de_all([ {qn, V} | T], Dests) ->
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- ResDests],
+    (V NOT in QueueNames) andalso is_match_de_all(T, Dests);
+    Blah. 
+
 
 
 %% Match on routing key
@@ -1542,6 +1592,31 @@ get_match_rk_ops([ _ | Tail ], Result) ->
     get_match_rk_ops(Tail, Result).
 
 
+%% Get Destinations operators from binding's arguments
+%% -----------------------------------------------------------------------------
+get_match_de_ops([], Result) -> Result;
+
+% No destination at all
+get_match_de_ops([ {<<"x-?!de">>, _, << >>} | Tail ], Res) ->
+    get_match_de_ops(Tail, [ no | Res]);
+% Queue V belongs to dests
+get_match_de_ops([ {<<"x-?deq">>, _, <<V/binary>>} | Tail ], Res) ->
+    get_match_de_ops(Tail, [ {q, V} | Res]);
+% Queue V does not belong to dests
+get_match_de_ops([ {<<"x-?de!q">>, _, <<V/binary>>} | Tail ], Res) ->
+    get_match_de_ops(Tail, [ {qn, V} | Res]);
+% Regex V match some queue from dests
+get_match_de_ops([ {<<"x-?deqre">>, _, <<V/binary>>} | Tail ], Res) ->
+    get_match_de_ops(Tail, [ {qre, V} | Res]);
+% Regex V does not match some queue from dests
+get_match_de_ops([ {<<"x-?deq!re">>, _, <<V/binary>>} | Tail ], Res) ->
+    get_match_de_ops(Tail, [ {qnre, V} | Res]);
+%
+get_match_de_ops([ _ | Tail ], Res) ->
+    get_match_de_ops(Tail, Res).
+
+
+
 % Validation is made upstream
 get_binding_order(Args, Default) ->
     case rabbit_misc:table_lookup(Args, <<"x-order">>) of
@@ -1844,11 +1919,14 @@ add_binding(transaction, #exchange{name = #resource{virtual_host = VHost} = XNam
 
     << MsgDests:8, MsgDestsRE:8 >> = get_msg_ops(BindingArgs, << 0, 0 >>),
     FlattenedBindindArgs = flatten_table(transform_x_del_dest(BindingArgs, Dest)),
+
     MatchHKOps = get_match_hk_ops(FlattenedBindindArgs),
     MatchRKOps = get_match_rk_ops(FlattenedBindindArgs, []),
     MatchDTOps = get_match_dt_ops(FlattenedBindindArgs, []),
     MatchATOps = get_match_pr_ops(FlattenedBindindArgs),
-    MatchOps = {MatchHKOps, MatchRKOps, MatchDTOps, MatchATOps},
+    MatchDEOps = get_match_de_ops(FlattenedBindindArgs, []),
+
+    MatchOps = {MatchHKOps, MatchRKOps, MatchDTOps, MatchATOps, MatchDEOps},
     DefaultDests = {ordsets:new(), ordsets:new(), ordsets:new(), ordsets:new()},
     {Dests, DestsRE} = get_dests_operators(VHost, FlattenedBindindArgs, DefaultDests, ?DEFAULT_DESTS_RE),
 
