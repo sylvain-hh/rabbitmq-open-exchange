@@ -151,6 +151,9 @@ groups() ->
       , { on_properties, [ parallel, {repeat, 10} ], [
             pr_exnx, pr_exnx_array, pr_userid
         ]}
+      , { on_destinations, [ parallel, {repeat, 10} ], [
+            de_none
+        ]}
 %%    , { on_datetime, [], [
 %%          dt
 %%      ]}
@@ -1646,6 +1649,25 @@ pr_exnx_array(Config) ->
     check_queue_messages(Config, QnxAP, [M1, M2, Mtyre, Mde]),
     check_queue_messages(Config, QnxALL, [M1, M2]),
     check_queue_messages(Config, QnxANY, [M1, M2, Mtyre, Mtyap, Mde]).
+
+
+%% Match on destinations
+%% -----------------------------------------------------------------------------
+
+de_none() ->
+    [
+        { "q1", [ [?BOrder(8000), ?KV1s] ]}
+      , { "q2", [ [?BOrder(9000), ?KVstr("x-?!de", "")] ]}
+    ].
+de_none(Config) ->
+    [ Q1, Q2 ] = ?config(test_queues, Config),
+
+    M1 = sendmsg_h(Config, [?KV1s]),
+    M3 = sendmsg_h(Config, [?KV3s]),
+
+    check_queue_messages(Config, Q1, [M1]),
+    check_queue_messages(Config, Q2, [M3]).
+
 
 
 %% -------------------------------------------------------------------

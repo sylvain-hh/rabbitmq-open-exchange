@@ -469,27 +469,25 @@ pack_msg_ops([ {K, _, V} | Tail ], VHost, Dests, DestsRE) ->
 %% Matching
 %% -----------------------------------------------------------------------------
 
-% !!!! L'ordre dans la liste des operations est important
 % !!!! SINON, utiliser une maps !!
 
-is_match2(0, _, []) -> false;
-is_match2(_, _, []) -> true;
+%is_match2(0, _, []) -> false;
+%is_match2(_, _, []) -> true;
+%
+%% Binding type any and hkOps
+%is_match2(0, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+%    is_match_hk_any(MatchHKOps, MsgProps#'P_basic'.headers) orelse is_match2(0, MsgData, OtherOps);
+%% Binding type set and hkOps
+%is_match2({3, Nmin}, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+%    (is_match_hk_set(MatchHKOps, MsgProps#'P_basic'.headers) >= Nmin) andalso is_match2(42, MsgData, OtherOps);
+%% Binding type all or eq and hkOps
+%is_match2(_, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
+%    is_match_hk_alloreq(MatchHKOps, MsgProps#'P_basic'.headers) andalso is_match2(42, MsgData, OtherOps);
+%
+%% Binding type any and prOps
+%is_match2(0, MsgData = {_, MsgProps}, [{prOps, MatchPROps} | OtherOps]) ->
+%    is_match_pr_any(MatchRKOps, MsgProps) orelse is_match2(0, MsgData, OtherOps).
 
-% Binding type any and hkOps
-is_match2(0, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
-    is_match_hk_any(MatchHKOps, MsgProps#'P_basic'.headers) orelse is_match2(0, MsgData, OtherOps);
-% Binding type set and hkOps
-is_match2({3, Nmin}, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
-    (is_match_hk_set(MatchHKOps, MsgProps#'P_basic'.headers) >= Nmin) andalso is_match2(42, MsgData, OtherOps);
-% Binding type all or eq and hkOps
-is_match2(_, MsgData = {_, MsgProps}, [{hkOps, MatchHKOps} | OtherOps]) ->
-    is_match_hk_alloreq(MatchHKOps, MsgProps#'P_basic'.headers) andalso is_match2(42, MsgData, OtherOps);
-
-% Binding type any and prOps
-is_match2(0, MsgData = {_, MsgProps}, [{prOps, MatchPROps} | OtherOps]) ->
-    is_match_pr_any(MatchRKOps, MsgProps) orelse is_match2(0, MsgData, OtherOps);
-
-band
 
 
 
@@ -707,14 +705,28 @@ is_match_de_all([ no | _], _) -> false;
 
 is_match_de_all([ {q, _} | _], []) -> false;
 is_match_de_all([ {q, V} | T], Dests) ->
-    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- ResDests],
-    (V in QueueNames) andalso is_match_de_all(T, Dests);
-    Blah. 
-is_match_de_all([ {qn, V} | T], Dests) ->
-    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- ResDests],
-    (V NOT in QueueNames) andalso is_match_de_all(T, Dests);
-    Blah. 
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- Dests],
+    lists:member(V, QueueNames) andalso is_match_de_all(T, Dests);
 
+is_match_de_all([ {qn, _} | T], []) ->
+    is_match_de_all(T, []);
+is_match_de_all([ {qn, V} | T], Dests) ->
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- Dests],
+    (false == lists:member(V, QueueNames)) andalso is_match_de_all(T, Dests);
+
+is_match_de_all([ {qre, _} | _], []) -> false;
+is_match_de_all([ {qre, V} | T], Dests) ->
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- Dests],
+    lists:any(fun(QueueName) -> re:run(QueueName, V, [ report_errors, {capture, none} ]) == match end, QueueNames) andalso is_match_de_all(T, Dests);
+
+is_match_de_all([ {qnre, _} | _], []) -> false;
+is_match_de_all([ {qnre, V} | T], Dests) ->
+    QueueNames = [QueueName || #resource{name = QueueName, kind=queue} <- Dests],
+    lists:any(fun(QueueName) -> re:run(QueueName, V, [ report_errors, {capture, none} ]) == nomatch end, QueueNames) andalso is_match_de_all(T, Dests).
+
+% any
+% --------------------------------------
+is_match_de_any(_, _) -> true.
 
 
 %% Match on routing key
@@ -1305,6 +1317,30 @@ validate_op([ {Op, longstr, Topic} | Tail ]) when Op==<<"x-?rktaci">> orelse Op=
         true -> validate_op(Tail);
         _ -> {error, {binding_invalid, "Invalid AMQP topic", []}}
     end;
+
+x-?de (empty)   : il existe au moins une destination
+x-?de! (empty)  : il n'existe aucune destination
+
+x-?deq (empty)  : il existe au moins une queue
+x-?de!q (empty) : il n'existe aucune queue
+
+x-?deq V        : la queue V existe dans les destinations
+x-?de!q V       : la queue V ne fait pas partie des destinations
+
+x-?deqre V      : il existe une queue qui matche V
+x-?deq!re V     : il existe une queue qui ne matche PAS V
+
+x-?deq*re V     : toutes les queues matchent V
+x-?deq*!re V    : toutes les queues ne matchent PAS V
+
+
+% Must validate regex
+validate_op([ {Op, longstr, << >>} | Tail ]) when Op==<<"x-?!de">> ->
+    validate_op(Tail);
+validate_op([ {Op, longstr, <<?ONE_CHAR_AT_LEAST>>} | Tail ]) when
+        Op==<<"x-?deq">> orelse Op==<<"x-?de!q">> orelse Op==<<"x-?deqre">> orelse
+            Op==<<"x-?deq!re">> ->
+    validate_op(Tail);
 
 % Dests ops (exchange)
 validate_op([ {Op, longstr, <<?ONE_CHAR_AT_LEAST>>} | Tail ]) when
